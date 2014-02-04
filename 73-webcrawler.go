@@ -16,19 +16,45 @@ func Crawl(url string, depth int, fetcher Fetcher) {
     // TODO: Fetch URLs in parallel.
     // TODO: Don't fetch the same URL twice.
     // This implementation doesn't do either:
-   if depth <= 0 {
-       return
-   }
-   body, urls, err := fetcher.Fetch(url)
-   if err != nil {
-       fmt.Println(err)
-       return
-   }
-   fmt.Printf("found: %s %q\n", url, body)
-   for _, u := range urls {
-       Crawl(u, depth-1, fetcher)
-   }
-   return
+  if depth <= 0 {
+    return
+  }
+  type fetchResult struct {
+    depth int
+    urls  []string
+  }
+  workQueue := make(chan fetchResult)
+  getPage := func(url string, currentDepth int) {
+    body, urls, err := fetcher.Fetch(url)
+    if err != nil {
+      fmt.Println(err)
+    } else {
+      fmt.Printf("found[%d:%s] %q\n", currentDepth, url, body)
+    }
+    workQueue <- fetchResult{currentDepth+1, urls}
+  }
+
+  // I don't like this use of this counter, but don't know channels well enough
+  // to do without it.
+  pending := 1
+  go getPage(url, 0)
+
+  visited := map[string]bool{url:true}
+  for pending > 0 {
+    next := <- workQueue
+    pending--
+    if next.depth > depth {
+      continue
+    }
+    for _, url := range next.urls {
+      if _, seen := visited[url]; seen {
+        continue
+      }
+      visited[url] = true
+      pending++
+      go getPage(url, next.depth)
+    }
+  }
 }
 
 func main() {
